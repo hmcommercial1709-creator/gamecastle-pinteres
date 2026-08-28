@@ -14,7 +14,6 @@ import {
   ExternalLink,
   Copy,
   Sparkles,
-  TrendingUp,
   LayoutDashboard,
   AlertCircle,
   Globe,
@@ -61,6 +60,54 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function App() {
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [signedIn, setSignedIn] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSignedIn(Boolean(data.session));
+      setCheckingSession(false);
+    });
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => setSignedIn(Boolean(session)));
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  if (checkingSession) {
+    return <div className="min-h-screen bg-slate-950 flex items-center justify-center"><Loader2 className="w-8 h-8 text-cyan-400 animate-spin" /></div>;
+  }
+
+  if (!signedIn) {
+    const signIn = async (event: React.FormEvent) => {
+      event.preventDefault();
+      setSigningIn(true);
+      setAuthError(null);
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setAuthError("Invalid administrator credentials");
+      setSigningIn(false);
+    };
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100 grid place-items-center p-6">
+        <form onSubmit={signIn} className="w-full max-w-sm rounded-2xl border border-slate-800 bg-slate-900/70 p-7 shadow-2xl">
+          <div className="mb-6 flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600"><Zap className="h-5 w-5" /></div><div><h1 className="font-bold">GameCastle Traffic Engine</h1><p className="text-xs text-slate-400">Administrator access</p></div></div>
+          <label className="mb-2 block text-sm text-slate-300">Email</label>
+          <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mb-4 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 outline-none focus:border-cyan-500" />
+          <label className="mb-2 block text-sm text-slate-300">Password</label>
+          <input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mb-4 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 outline-none focus:border-cyan-500" />
+          {authError && <p className="mb-4 text-sm text-red-400">{authError}</p>}
+          <button disabled={signingIn} className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 p-3 font-semibold disabled:opacity-50">{signingIn && <Loader2 className="h-4 w-4 animate-spin" />}Sign in securely</button>
+        </form>
+      </main>
+    );
+  }
+
+  return <Dashboard />;
+}
+
+function Dashboard() {
   const [view, setView] = useState<View>("dashboard");
   const [articles, setArticles] = useState<Article[]>([]);
   const [campaigns, setCampaigns] = useState<PinCampaign[]>([]);
@@ -156,11 +203,6 @@ export default function App() {
   };
 
   const handlePublishPin = async (campaign: PinCampaign) => {
-    if (!settings?.pinterest_access_token) {
-      showToast("Add your Pinterest access token in Settings first", "error");
-      setView("settings");
-      return;
-    }
     if (!settings?.pinterest_board_id && !campaign.board_id) {
       showToast("Add a Pinterest board ID in Settings first", "error");
       setView("settings");
@@ -171,8 +213,7 @@ export default function App() {
     try {
       const result = await callEdgeFunction("publish-pin", {
         campaign_id: campaign.id,
-        access_token: settings.pinterest_access_token,
-        board_id: settings.pinterest_board_id,
+        board_id: settings?.pinterest_board_id,
       });
       showToast(result.message || "Pin published successfully!");
       await loadAll();
@@ -473,7 +514,7 @@ function DashboardView({
   autoProgress: { step: string; current: number; total: number } | null;
 }) {
   const [websiteUrl, setWebsiteUrl] = useState(settings?.website_url || "https://gamecastle.store");
-  const [token, setToken] = useState(settings?.pinterest_access_token || "");
+  const [token, setToken] = useState("");
   const [boardId, setBoardId] = useState(settings?.pinterest_board_id || "");
   const [showToken, setShowToken] = useState(false);
 
@@ -481,7 +522,6 @@ function DashboardView({
   useEffect(() => {
     if (settings) {
       setWebsiteUrl(settings.website_url || "https://gamecastle.store");
-      setToken(settings.pinterest_access_token || "");
       setBoardId(settings.pinterest_board_id || "");
     }
   }, [settings]);
@@ -490,7 +530,6 @@ function DashboardView({
     // Save settings first
     await onSaveSettings({
       website_url: websiteUrl,
-      pinterest_access_token: token,
       pinterest_board_id: boardId,
     });
     // Then run full automation
@@ -1133,7 +1172,6 @@ function SettingsView({
   settings: Settings | null;
   onSave: (s: Partial<Settings>) => void;
 }) {
-  const [token, setToken] = useState(settings?.pinterest_access_token || "");
   const [boardId, setBoardId] = useState(settings?.pinterest_board_id || "");
   const [username, setUsername] = useState(settings?.pinterest_username || "");
   const [websiteUrl, setWebsiteUrl] = useState(settings?.website_url || "https://gamecastle.store");
@@ -1143,7 +1181,6 @@ function SettingsView({
     setSaving(true);
     try {
       await onSave({
-        pinterest_access_token: token,
         pinterest_board_id: boardId,
         pinterest_username: username,
         website_url: websiteUrl,
@@ -1157,7 +1194,7 @@ function SettingsView({
     <div className="max-w-2xl">
       <header className="mb-6">
         <h2 className="text-2xl font-bold mb-1">Settings</h2>
-        <p className="text-slate-400 text-sm">Configure your Pinterest API credentials and website</p>
+        <p className="text-slate-400 text-sm">Configure non-secret Pinterest preferences and website</p>
       </header>
 
       <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 space-y-5">
@@ -1176,20 +1213,8 @@ function SettingsView({
           <p className="text-xs text-slate-500 mt-1.5">The website to fetch articles from</p>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
-            Pinterest Access Token
-          </label>
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Enter your Pinterest API access token"
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-slate-100 focus:border-cyan-500/50 focus:outline-none"
-          />
-          <p className="text-xs text-slate-500 mt-1.5">
-            Get this from the Pinterest Developer portal under your app settings
-          </p>
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-300">
+          Pinterest credentials are stored as protected server secrets and are never saved in this dashboard.
         </div>
 
         <div>
@@ -1240,7 +1265,7 @@ function SettingsView({
               <li>Go to developers.pinterest.com and create an app</li>
               <li>Generate an access token with pins:write and boards:read scopes</li>
               <li>Find your board ID in the board URL or via the API</li>
-              <li>Paste both values above and save</li>
+              <li>Store the token as the protected PINTEREST_ACCESS_TOKEN Edge Function secret</li>
             </ol>
           </div>
         </div>

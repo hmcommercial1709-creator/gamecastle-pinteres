@@ -1,3 +1,5 @@
+import { assertAdmin } from "../_shared/admin-auth.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -10,6 +12,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    await assertAdmin(req);
     const { board_url, access_token } = await req.json();
 
     if (!board_url || !access_token) {
@@ -84,9 +87,10 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
+    const status = errorMsg === "Unauthorized" ? 401 : 500;
     return new Response(
       JSON.stringify({ error: errorMsg }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

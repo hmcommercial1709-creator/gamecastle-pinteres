@@ -26,7 +26,6 @@ export interface PinCampaign {
 
 export interface Settings {
   id: string;
-  pinterest_access_token: string | null;
   pinterest_board_id: string | null;
   pinterest_username: string | null;
   website_url: string | null;

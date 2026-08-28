@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { assertAdmin } from "../_shared/admin-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,7 +18,9 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    await assertAdmin(req);
     const { campaign_id, access_token, board_id } = await req.json();
+    const pinterestToken = Deno.env.get("PINTEREST_ACCESS_TOKEN") || access_token;
 
     if (!campaign_id) {
       return new Response(
@@ -26,7 +29,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    if (!access_token) {
+    if (!pinterestToken) {
       return new Response(
         JSON.stringify({
           success: false,
@@ -49,7 +52,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const targetBoardId = board_id || campaign.board_id;
+    const targetBoardId = board_id || campaign.board_id || Deno.env.get("PINTEREST_BOARD_ID");
 
     if (!targetBoardId) {
       return new Response(
@@ -66,7 +69,13 @@ Deno.serve(async (req: Request) => {
       .update({ status: "publishing", error_message: null, updated_at: new Date().toISOString() })
       .eq("id", campaign_id);
 
-    const articleUrl = campaign.articles?.url || "https://gamecastle.store";
+    const rawArticleUrl = campaign.articles?.url || "https://gamecastle.store";
+    const trackedUrl = new URL(rawArticleUrl);
+    trackedUrl.searchParams.set("utm_source", "pinterest");
+    trackedUrl.searchParams.set("utm_medium", "social");
+    trackedUrl.searchParams.set("utm_campaign", "gamecastle_evergreen");
+    trackedUrl.searchParams.set("utm_content", campaign.id);
+    const articleUrl = trackedUrl.toString();
 
     const pinData: Record<string, unknown> = {
       board_id: targetBoardId,
@@ -82,7 +91,7 @@ Deno.serve(async (req: Request) => {
     const response = await fetch("https://api.pinterest.com/v5/pins", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${access_token}`,
+        "Authorization": `Bearer ${pinterestToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(pinData),
@@ -138,9 +147,10 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
+    const status = errorMsg === "Unauthorized" ? 401 : 500;
     return new Response(
       JSON.stringify({ success: false, error: errorMsg }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

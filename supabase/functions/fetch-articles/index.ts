@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { assertAdmin } from "../_shared/admin-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -79,7 +80,37 @@ async function fetchPageContent(url: string): Promise<ArticleItem | null> {
   }
 }
 
-async function fetchArticlesFromSite(websiteUrl: string): Promise<ArticleItem[]> {
+function extractLocs(xml: string): string[] {
+  return [...xml.matchAll(/<loc>\s*([^<]+)\s*<\/loc>/gi)].map((match) => match[1].trim());
+}
+
+async function discoverFromSitemaps(origin: string, hostname: string, maxUrls: number): Promise<string[]> {
+  const discovered = new Set<string>();
+  const sitemapQueue = [`${origin}/sitemap.xml`, `${origin}/sitemap_index.xml`];
+  const visited = new Set<string>();
+
+  while (sitemapQueue.length && discovered.size < maxUrls && visited.size < 50) {
+    const sitemapUrl = sitemapQueue.shift()!;
+    if (visited.has(sitemapUrl)) continue;
+    visited.add(sitemapUrl);
+    try {
+      const response = await fetch(sitemapUrl, { signal: AbortSignal.timeout(15000) });
+      if (!response.ok) continue;
+      for (const loc of extractLocs(await response.text())) {
+        const parsed = new URL(loc);
+        if (parsed.hostname.replace(/^www\./, "") !== hostname) continue;
+        if (loc.endsWith(".xml")) sitemapQueue.push(loc);
+        else if (!/\.(?:jpg|jpeg|png|webp|gif|css|js|xml|pdf)(?:\?|$)/i.test(loc)) discovered.add(loc.replace(/\/$/, ""));
+        if (discovered.size >= maxUrls) break;
+      }
+    } catch {
+      // Try the next sitemap candidate.
+    }
+  }
+  return [...discovered];
+}
+
+async function fetchArticlesFromSite(websiteUrl: string, maxUrls = 100): Promise<ArticleItem[]> {
   const articles: ArticleItem[] = [];
   const targetUrl = websiteUrl || "https://gamecastle.store";
 
@@ -91,6 +122,17 @@ async function fetchArticlesFromSite(websiteUrl: string): Promise<ArticleItem[]>
   }
 
   try {
+    const parsedTarget = new URL(targetUrl);
+    const sitemapUrls = await discoverFromSitemaps(parsedTarget.origin, hostname, maxUrls);
+    if (sitemapUrls.length > 0) {
+      const batchSize = 8;
+      for (let index = 0; index < sitemapUrls.length; index += batchSize) {
+        const results = await Promise.all(sitemapUrls.slice(index, index + batchSize).map((url) => fetchPageContent(url)));
+        for (const item of results) if (item && item.title !== "Untitled Article") articles.push(item);
+      }
+      return articles;
+    }
+
     const response = await fetch(targetUrl, {
       headers: {
         "User-Agent":
@@ -128,7 +170,7 @@ async function fetchArticlesFromSite(websiteUrl: string): Promise<ArticleItem[]>
       }
     }
 
-    const articleUrls = Array.from(urls).slice(0, 15);
+    const articleUrls = Array.from(urls).slice(0, maxUrls);
 
     const results = await Promise.all(articleUrls.map((url) => fetchPageContent(url)));
     for (const item of results) {
@@ -150,9 +192,11 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    await assertAdmin(req);
     const body = await req.json().catch(() => ({}));
     const websiteUrl = body.website_url || "https://gamecastle.store";
-    const fetchedArticles = await fetchArticlesFromSite(websiteUrl);
+    const maxUrls = Math.min(Math.max(Number(body.max_urls || 100), 1), 500);
+    const fetchedArticles = await fetchArticlesFromSite(websiteUrl, maxUrls);
 
     if (fetchedArticles.length === 0) {
       return new Response(
@@ -212,9 +256,10 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
+    const status = errorMsg === "Unauthorized" ? 401 : 500;
     return new Response(
       JSON.stringify({ success: false, error: errorMsg }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
