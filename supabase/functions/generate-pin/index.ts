@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { assertAdmin } from "../_shared/admin-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,24 +36,17 @@ const VIRAL_HASHTAGS = [
 ];
 
 const TITLE_TEMPLATES = [
-  "أقوى خلفيات الأنمي التي لم تتراها من قبل... 🔥",
-  "اكتشف المفاجأة الأسطورية التي ينتظرها كل عشاق الأنمي! ⚡",
-  "هذه الخلفيات ستجعلك تعيد المشاهدة مراراً... لا تفوّتها! 🎮",
-  "اللحظة التي طال انتظارها وصلت! اكتشف ما خفي عنك... ✨",
-  "أمرٌ أسطوري ينتظره عشاق الأنمي والجيمينج... شاهد الآن! 🎌",
-  "خلفيات خرافية ستنقلك لعالم آخر من الإبداع... 🌟",
-  "ما رآه الجميع ولم يلاحظه أحد... اكتشف السر الآن! 🗡️",
-  "أقوى تصاميم الأنمي على الإطلاق... جاهزة لك! 💫",
-  "لن تصدق ما تم إصداره للتو... عش الأسطورة بنفسك! 🏆",
-  "الخلفية التي سيتحدث عنها الجميع... كن أول من يكتشفها! 🌌",
+  "Complete Guide: {title}",
+  "Everything Anime Fans Need to Know About {title}",
+  "The Ultimate {title} Guide",
+  "Save This Anime Guide: {title}",
+  "Explore {title} on GameCastle",
 ];
 
 const DESC_TEMPLATES = [
-  "استعد لدخول عالم من الإثارة البصرية المطلقة! هذه الخلفيات ليست مجرد صور، بل بوابة نحو عوالم الأنمي الأسطورية التي طالما حلمت بها. كل تفصيل صُمم بعناية فائقة ليمنحك تجربة بصرية لا تُنسى. 🎮✨\n\nلا تدع هذه الفرصة تفوتك! اضغط على الرابط الآن واكتشف المجموعة الكاملة على GameCastle. 🔗👇",
-  "هل أنت مستعد لاكتشاف ما لم يراه أحد من قبل؟ هذه المجموعة الأسطورية من خلفيات الأنمي ستعيد تعريف مفهوم الجمال في عالمك الرقمي. دقة عالية، ألوان مذهلة، وتصاميم تأسر القلوب. 🗡️🔥\n\nالكمية محدودة! زر GameCastle الآن واحصل على مجموعتك قبل نفادها. ⚡",
-  "عشوق الأنمي... هذا ما كنت تنتظره! مجموعة استثنائية من الخلفيات السينمائية بجودة 4K فائقة الدقة. كل خلفية تحكي قصة، كل لقطة تنبض بالحياة. لا تكتمل مجموعتك بدونها. 🌟\n\nاضغط هنا وانتقل إلى GameCastle لتكتشف الكنز المخفي! 🎌",
-  "الأنمي ليس مجرد مشاهدة، بل أسلوب حياة! وهذه الخلفيات تعكس ذلك بكل معنى الكلمة. تصاميم تجمع بين الفن والشغف والإبداع، مخصصة لكل من ينبض قلبه حباً لعالم الأنمي. 💫\n\nلا تفوّت اللحظة! زر الموقع الآن واختر خلفيتك المفضلة. 🔗",
-  "ماذا لو أخبرتك أن هناك عالماً كاملاً من الإبداع ينتظرك؟ هذه الخلفيات السينمائية المذهلة ستنقلك إلى أبعاد جديدة من الجمال الفني. جودة استثنائية وتفاصيل تأسر الأنظار. 🏆\n\nاكتشف المزيد على GameCastle وكن جزءاً من المجتمع! 🎮",
+  "A clear, fan-friendly guide with the essential details in one place. Read the complete article on GameCastle and save this Pin for later.",
+  "Looking for a useful anime guide without the filler? Explore the full breakdown, related recommendations, and more on GameCastle.",
+  "Discover the complete guide for anime fans, with practical answers and related resources. Visit GameCastle to continue reading.",
 ];
 
 function pickRandom<T>(arr: T[]): T {
@@ -67,12 +61,12 @@ function pickHashtags(count: number): string[] {
 function generateArabicTitle(articleTitle: string): string {
   const template = pickRandom(TITLE_TEMPLATES);
   const cleanTitle = articleTitle.replace(/[<>]/g, "").trim();
-  return `${template}\n\n"${cleanTitle}"`;
+  return template.replace("{title}", cleanTitle).substring(0, 100);
 }
 
 function generateArabicDescription(articleUrl: string): string {
   const template = pickRandom(DESC_TEMPLATES);
-  const hashtags = pickHashtags(8);
+  const hashtags = pickHashtags(5);
   const hashtagStr = hashtags.map((h) => `#${h}`).join(" ");
   return `${template}\n\n${articleUrl}\n\n${hashtagStr}`;
 }
@@ -102,6 +96,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    await assertAdmin(req);
     const { article_id, regenerate } = await req.json();
 
     if (!article_id) {
@@ -148,8 +143,8 @@ Deno.serve(async (req: Request) => {
 
     const arabicTitle = generateArabicTitle(article.title);
     const arabicDescription = generateArabicDescription(article.url);
-    const imageUrl = await generateAnimeImage(article.title);
-    const hashtags = pickHashtags(15);
+    const imageUrl = article.image_url || await generateAnimeImage(article.title);
+    const hashtags = pickHashtags(5);
 
     const { data: campaign, error: campaignError } = await supabase
       .from("pin_campaigns")
@@ -183,9 +178,10 @@ Deno.serve(async (req: Request) => {
     );
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
+    const status = errorMsg === "Unauthorized" ? 401 : 500;
     return new Response(
       JSON.stringify({ success: false, error: errorMsg }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
