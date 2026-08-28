@@ -1,0 +1,13 @@
+project_id = "bbspohirpchymljcudwf"
+
+[functions.fetch-articles]
+verify_jwt = false
+
+[functions.generate-pin]
+verify_jwt = false
+
+[functions.publish-pin]
+verify_jwt = false
+
+[functions.resolve-board]
+verify_jwt = false
